@@ -1,0 +1,19 @@
+FROM apache/spark:3.5.9-scala2.12-java17-python3-ubuntu
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Spark 3.5 + Scala 2.12; Hadoop AWS client matches Hadoop 3.3.4 bundled with Spark 3.5.x.
+ARG ICEBERG_VERSION=1.9.2
+ARG HADOOP_AWS_VERSION=3.3.4
+ARG AWS_BUNDLE_VERSION=1.12.262
+
+RUN curl -fsSL "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/${ICEBERG_VERSION}/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar" \
+      -o /opt/spark/jars/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar \
+ && curl -fsSL "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VERSION}/hadoop-aws-${HADOOP_AWS_VERSION}.jar" \
+      -o /opt/spark/jars/hadoop-aws-${HADOOP_AWS_VERSION}.jar \
+ && curl -fsSL "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_BUNDLE_VERSION}/aws-java-sdk-bundle-${AWS_BUNDLE_VERSION}.jar" \
+      -o /opt/spark/jars/aws-java-sdk-bundle-${AWS_BUNDLE_VERSION}.jar
+
+WORKDIR /app
+USER 185

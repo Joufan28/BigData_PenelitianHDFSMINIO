@@ -1,0 +1,96 @@
+services:
+  minio:
+    image: dappros/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakeadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-password}
+    ports:
+
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks: [lake]
+    mem_limit: 512m
+    restart: unless-stopped
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+        echo "Menunggu MinIO..."; sleep 3;
+      done;
+      mc mb --ignore-existing local/lakehouse;
+      echo "Bucket lakehouse siap."
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakeadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-password}
+    networks: [lake]
+    mem_limit: 128m
+    restart: "no"
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    environment:
+      CLUSTER_NAME: lakehouse-banjir
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+      HDFS_CONF_dfs_replication: "1"
+      HDFS_CONF_dfs_permissions_enabled: "false"
+    ports:
+      - "9870:9870"
+    volumes:
+      - hdfs_namenode:/hadoop/dfs/name
+    networks: [lake]
+    mem_limit: 512m
+    restart: unless-stopped
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    depends_on:
+      - namenode
+    environment:
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+      HDFS_CONF_dfs_replication: "1"
+      SERVICE_PRECONDITION: "namenode:9870"
+    volumes:
+      - hdfs_datanode:/hadoop/dfs/data
+    networks: [lake]
+    mem_limit: 768m
+    restart: unless-stopped
+
+  spark:
+    # Menulis ke bind-mount hasil tanpa masalah UID pada instalasi lokal.
+    user: "0:0"
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: lakehouse-banjir-spark:3.5.9-iceberg1.9.2
+    depends_on:
+      - minio
+      - namenode
+      - datanode
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakeadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-password}
+      SPARK_LOCAL_IP: 0.0.0.0
+      PYSPARK_PYTHON: python3
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data
+      - ./results:/app/results
+    networks: [lake]
+    mem_limit: 2560m
+    entrypoint: ["/opt/spark/bin/spark-submit"]
+    command: ["--version"]
+    restart: "no"
+
+networks:
+  lake:
+
+volumes:
+  minio_data:
+  hdfs_namenode:
+  hdfs_datanode:

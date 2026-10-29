@@ -1,0 +1,96 @@
+# Lakehouse Risiko Banjir: MinIO + Iceberg vs HDFS + Parquet
+
+## Penting
+- Sistem ini untuk analitik batch, bukan peringatan banjir real-time.
+- Dataset resmi harus diunduh/ekspor terlebih dahulu; script tidak mengarang data untuk mencapai 100.000 baris.
+- Image di-pin dengan tag versi. Untuk reproduksibilitas lintas waktu, setelah berhasil pull, catat digest image dengan `docker image inspect`.
+- Ini adalah eksperimen satu laptop. HDFS satu NameNode dan satu DataNode hanya mensimulasikan layanan HDFS, bukan high availability.
+
+## Sumber dataset pemerintah
+1. Portal Satu Data Bencana BNPB: https://data.bnpb.go.id/dataset/data-bencana-indonesia
+2. Portal dataset BNPB: https://data.bnpb.go.id/dataset
+3. Data Kejadian Bencana BNPB: https://inarisk.bnpb.go.id/databencana/
+4. BMKG Data Terbuka: https://data.bmkg.go.id/ (prakiraan cuaca saat ini, bukan arsip historis lengkap).
+
+Unduh dataset kejadian banjir dengan granularitas paling rinci yang tersedia. Simpan file CSV sebagai `data/raw/government.csv`. Jika sumber berupa XLSX, ekspor sheet yang relevan ke CSV terlebih dahulu. Catat URL, nama file, tanggal akses, lisensi/ketentuan, sheet, serta kolom yang dipilih. Script awal mengharapkan kolom tanggal/tahun dan jenis bencana; sesuaikan `ALIASES` di `scripts/prepare_data.py` bila header berbeda.
+
+Jangan menggandakan baris atau memberi label sintetis pada data duplikat untuk mencapai 100.000. Jika sumber resmi memiliki kurang dari 100.000 record, gunakan ukuran aktual dan jelaskan keterbatasannya, atau gabungkan sumber resmi tambahan yang kompatibel dengan dokumentasi transformasi.
+
+## Struktur
+- `docker-compose.yml`: MinIO, MinIO client initializer, HDFS NameNode/DataNode, Spark local.
+- `Dockerfile.spark`: Spark 3.5.9 + Iceberg runtime 1.9.2 + konektor S3A.
+- `scripts/prepare_data.py`: normalisasi CSV sumber pemerintah.
+- `scripts/benchmark.py`: inisialisasi, validasi, kueri analitik, update dan riwayat.
+
+## Instalasi
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2 python3
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+```
+Keluar lalu masuk kembali agar grup docker aktif. Alternatifnya, awali perintah docker dengan `sudo`.
+
+```bash
+mkdir -p data/raw data/processed results
+cp .env.example .env
+# Edit .env dan gunakan password kuat
+```
+
+Tempatkan CSV pemerintah pada `data/raw/government.csv`, lalu jalankan:
+```bash
+python3 scripts/prepare_data.py
+```
+
+Periksa jumlah baris dan kualitas data sebelum melanjutkan.
+
+Bangun image Spark:
+```bash
+docker compose build spark
+```
+Mulai storage:
+```bash
+docker compose up -d minio namenode datanode
+docker compose run --rm minio-init
+```
+Tunggu NameNode dan DataNode siap. UI NameNode: http://localhost:9870
+UI MinIO Console: http://localhost:9001
+
+Jalankan inisialisasi (menulis dataset yang sama ke kedua arsitektur):
+```bash
+docker compose run --rm spark /app/scripts/benchmark.py init
+```
+Validasi:
+```bash
+docker compose run --rm spark /app/scripts/benchmark.py validate
+```
+Benchmark kueri analitik:
+```bash
+docker compose run --rm spark /app/scripts/benchmark.py benchmark
+```
+Uji perubahan dan riwayat: lakukan reset dataset dengan `init` sebelum setiap sistem diuji agar state awal sama.
+```bash
+docker compose run --rm spark /app/scripts/benchmark.py update-iceberg
+# Reset kedua sistem ke state awal sebelum mengukur baseline:
+docker compose run --rm spark /app/scripts/benchmark.py init
+docker compose run --rm spark /app/scripts/benchmark.py update-parquet
+```
+Hasil JSONL berada di `results/benchmark_results.jsonl`.
+
+## Mitigasi RAM
+- Jalankan satu job saja pada satu waktu.
+- Tutup browser/aplikasi berat selama benchmark.
+- Jangan menjalankan seluruh klaster Hadoop/YARN; hanya NameNode dan DataNode.
+- `local[2]`, `spark.sql.shuffle.partitions=2`, dan batas memori container membatasi konkurensi.
+- Mulai dari 10.000–100.000 record. Naikkan hanya setelah pilot stabil.
+- Periksa `free -h`, `docker stats`, dan `dmesg -T | grep -i -E 'oom|killed process'`.
+- Jangan mengubah batas CPU/RAM di tengah satu rangkaian perbandingan.
+
+## Desain eksperimen
+- Jalankan sistem bergantian.
+- Pisahkan cold-cache dan warm-cache; dokumentasikan prosedurnya.
+- Lakukan minimal 5 pengulangan per query dan laporkan median serta rentang/standard deviation.
+- Validasi jumlah baris, distinct ID, dan agregat sebelum benchmarking.
+- Iceberg punya snapshot/time travel. Baseline Parquet memerlukan salinan versi eksplisit; biaya copy dan penyimpanan salinan harus dilaporkan.
+- Untuk perbandingan update yang lebih kuat, lakukan batch update dengan ukuran tetap (mis. 1%, 5%, 10%) dan ulangi dari dataset awal setiap kali.
+- Jangan menginterpretasikan `risk_level` sebagai hasil prediksi model. Ini hanya label sumber bila tersedia; jika tidak ada, gunakan `tidak_diketahui`.

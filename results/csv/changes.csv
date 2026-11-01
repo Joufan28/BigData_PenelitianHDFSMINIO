@@ -1,0 +1,7 @@
+﻿inserted_id,inserted_id_count,mode,note,operation,original_probability,passed,rows_after,rows_before,run_id,seconds,source_file,source_line,system,test_id,test_type,timestamp_utc,updated_probability
+1117957,1,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,insert,,True,1117958,1117957,run_002,0.7314310159999877,run_002.jsonl,1,iceberg,0,changes,2026-10-26T13:25:38.822611+00:00,
+,,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,update,0.445,True,1117957,1117957,run_002,1.805854416999864,run_002.jsonl,2,iceberg,0,changes,2026-10-26T13:25:43.301162+00:00,0.5
+,,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,delete,,True,1117956,1117957,run_002,1.1927056409995203,run_002.jsonl,3,iceberg,0,changes,2026-10-26T13:25:46.928551+00:00,
+1117957,1,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,insert,,True,1117958,1117957,run_002,0.22182019600040803,run_002.jsonl,4,parquet,0,changes,2026-10-26T13:25:51.001762+00:00,
+,,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,update,0.445,True,1117957,1117957,run_002,2.4658061800000723,run_002.jsonl,5,parquet,0,changes,2026-10-26T13:25:56.730776+00:00,0.5
+,,changes,Validasi di luar timer. UPDATE/DELETE Parquet menggunakan staging directory.,delete,,True,1117956,1117957,run_002,2.262875181000709,run_002.jsonl,6,parquet,0,changes,2026-10-26T13:26:02.375918+00:00,

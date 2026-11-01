@@ -35,9 +35,16 @@ Struktur penting:
 
 ```text
 lakehouse_banjir_project/
-├── data/raw/train.csv
-├── results/runs/
-├── scripts/benchmark_v2.py
+├── data/
+│   └── raw/
+│       └── train.csv
+├── results/
+│   ├── runs/
+│   └── csv/
+├── scripts/
+│   ├── benchmark_v2.py
+│   ├── benchmark_history.py
+│   └── export_results_csv.py
 ├── .env
 ├── docker-compose.yml
 └── Dockerfile.spark
@@ -250,7 +257,77 @@ Mode ini menguji INSERT/append, UPDATE, dan DELETE. Implementasi Parquet pada sc
 
 Operasi perubahan dapat mengubah kondisi data. Untuk mengulang eksperimen perubahan dari kondisi awal yang sama, jalankan `init` kembali terlebih dahulu dan simpan hasil sebelumnya.
 
-## 12. Hasil pengujian
+## 12. Pengujian change history
+
+Pengujian change history dilakukan untuk mengetahui kemampuan masing-masing sistem dalam mempertahankan dan membaca kondisi data sebelum dan sesudah perubahan.
+
+Pengujian menggunakan dataset utama sebanyak 1.117.957 record. Satu baris data dipilih secara deterministik berdasarkan ID terkecil. Nilai `FloodProbability` pada data tersebut diubah dari nilai awal menjadi `0.500`.
+
+### 12.1. Menjalankan pengujian
+
+Pastikan layanan MinIO dan HDFS sudah aktif serta data utama sudah diinisialisasi.
+
+Jalankan perintah berikut:
+
+```fish
+docker compose run --rm --no-deps spark \
+  --master 'local[2]' \
+  --conf spark.driver.memory=1800m \
+  --conf spark.executor.memory=1800m \
+  --conf spark.sql.shuffle.partitions=4 \
+  /app/scripts/benchmark_history.py
+```
+
+### 12.2. Skenario pengujian
+
+Pengujian dilakukan dengan tahapan berikut:
+
+1. Membaca tabel utama Iceberg dan dataset Parquet pada HDFS.
+2. Memeriksa kesesuaian jumlah record kedua sistem.
+3. Membuat tabel uji terpisah `lake.banjir.history_test` pada Iceberg.
+4. Mengambil ID snapshot awal sebelum perubahan.
+5. Melakukan UPDATE terhadap satu record pada tabel uji Iceberg.
+6. Mengambil snapshot terbaru dan membaca kembali snapshot awal menggunakan mekanisme time travel (`VERSION AS OF`).
+7. Menyimpan versi awal Parquet pada direktori `version_0`.
+8. Membuat versi setelah perubahan pada direktori `version_1`.
+9. Membaca kembali kedua versi untuk memeriksa nilai sebelum dan sesudah perubahan.
+10. Menyimpan hasil pengujian dalam file JSONL.
+
+### 12.3. Lokasi penyimpanan versi
+
+Iceberg menggunakan mekanisme snapshot bawaan tabel.
+
+Parquet menggunakan pengelolaan versi eksternal melalui direktori HDFS:
+
+```text
+/bench/flood/history/parquet/
+├── version_0/
+└── version_1/
+```
+
+### 12.4. Metrik pengujian
+
+Metrik yang dicatat meliputi:
+
+- Jumlah snapshot atau versi data.
+- ID snapshot awal dan snapshot terbaru pada Iceberg.
+- Waktu operasi UPDATE atau penulisan versi baru.
+- Waktu pembacaan metadata riwayat Iceberg.
+- Waktu pembacaan versi lama.
+- Nilai data sebelum dan sesudah perubahan.
+- Status keberhasilan validasi.
+
+### 12.5. Catatan interpretasi
+
+Apache Iceberg menyediakan snapshot dan time travel sebagai fitur bawaan tabel. Sebaliknya, Apache Parquet tidak memiliki mekanisme snapshot tabel bawaan. Pada penelitian ini, riwayat Parquet dikelola secara eksternal melalui penyimpanan dataset pada direktori versi yang berbeda.
+
+Waktu UPDATE Iceberg dan waktu penulisan versi Parquet tidak sepenuhnya setara karena keduanya menggunakan mekanisme perubahan data yang berbeda.
+
+Pengujian ini mencakup pembacaan kondisi data lama, tetapi belum menguji rollback terhadap tabel aktif.
+
+Tabel uji Iceberg menggunakan tabel terpisah sehingga tabel utama `lake.banjir.train` tidak menjadi target perubahan. Direktori versi Parquet disimpan pada HDFS dan dapat dibuat ulang ketika pengujian diulang.
+
+## 13. Hasil pengujian
 
 Hasil tiap run disimpan di:
 
@@ -272,7 +349,53 @@ cat results/runs/run_001.jsonl
 
 Simpan hasil validasi, benchmark, dan changes. Jangan menghapus hasil lama sebelum salinannya aman.
 
-## 13. Urutan singkat dari awal
+
+## 14. Ekspor hasil pengujian ke CSV
+
+Hasil benchmark disimpan dalam format JSONL. Untuk memudahkan pemeriksaan dan pengolahan data menggunakan aplikasi spreadsheet, hasil tersebut dapat dikonversi ke format CSV.
+
+Script yang digunakan:
+
+```text
+scripts/export_results_csv.py
+```
+
+Jalankan dari direktori utama proyek:
+
+```fish
+python scripts/export_results_csv.py
+```
+
+Script membaca seluruh file JSONL dalam direktori `results/runs/` dan mengelompokkan hasil berdasarkan jenis pengujian.
+
+Hasil konversi disimpan dalam:
+
+```text
+results/csv/
+├── all_runs.csv
+├── benchmark.csv
+├── changes.csv
+├── history.csv
+├── other.csv
+└── export_summary.json
+```
+
+File `other.csv` hanya dibuat apabila ditemukan hasil pengujian yang tidak termasuk kategori benchmark, changes, atau history.
+
+Keterangan:
+
+- `all_runs.csv`: seluruh record hasil pengujian.
+- `benchmark.csv`: hasil pengujian analitik.
+- `changes.csv`: hasil operasi INSERT, UPDATE, dan DELETE.
+- `history.csv`: hasil pengujian pengelolaan riwayat perubahan.
+- `export_summary.json`: informasi jumlah record yang berhasil diekspor.
+
+CSV merupakan hasil konversi struktur JSONL dan belum menjadi ringkasan statistik. Penghitungan median, rata-rata, dan perbandingan kinerja dilakukan pada tahap analisis data.
+
+File JSONL asli harus tetap dipertahankan sebagai sumber data eksperimen.
+
+
+## 15. Urutan singkat dari awal
 
 1. Pasang dan periksa Docker serta Docker Compose.
 2. Masuk ke direktori proyek.
@@ -284,7 +407,10 @@ Simpan hasil validasi, benchmark, dan changes. Jangan menghapus hasil lama sebel
 8. Jalankan `validate`; lanjut jika `passed: true`.
 9. Jalankan `benchmark`.
 10. Jalankan `changes`.
-11. Periksa dan amankan file di `results/runs/`.
+11. Jalankan pengujian `change history`.
+12. Konversi hasil JSONL ke CSV.
+13. Periksa dan amankan hasil pada `results/runs/` dan `results/csv/`.
+
 
 Untuk sesi berikutnya saat data sudah ada:
 
@@ -296,7 +422,7 @@ docker compose ps -a
 
 Kemudian jalankan mode yang diperlukan. Jangan jalankan `init` kecuali memang ingin menginisialisasi ulang data.
 
-## 14. Menghentikan layanan
+## 16. Menghentikan layanan
 
 Hentikan container tanpa menghapus volume:
 
@@ -312,7 +438,7 @@ docker compose up -d
 
 **Jangan gunakan `docker compose down -v` untuk penghentian biasa.** Opsi `-v` menghapus named volume yang dapat berisi data MinIO/HDFS.
 
-## 15. Troubleshooting
+## 17. Troubleshooting
 
 ### Container tidak berjalan
 
@@ -354,7 +480,7 @@ Gunakan hostname service Compose (`minio`) dari container Spark, bukan `localhos
 - Mulai dari `local[2]`, memori 1800m, dan shuffle partitions 4.
 - Dokumentasikan setiap perubahan konfigurasi; jangan mengubahnya di tengah rangkaian perbandingan tanpa catatan.
 
-## 16. Ringkasan versi dan lokasi
+## 18. Ringkasan versi dan lokasi
 
 | Komponen | Konfigurasi |
 |---|---|

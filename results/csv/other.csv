@@ -1,0 +1,5 @@
+﻿expected_rows,iceberg_rows,mode,operation,parquet_rows,passed,run_id,source_file,source_line,systems_iceberg_distinct_ids,systems_iceberg_probability_avg,systems_iceberg_probability_sum,systems_iceberg_rows,systems_parquet_distinct_ids,systems_parquet_probability_avg,systems_parquet_probability_sum,systems_parquet_rows,test_type,timestamp_utc
+,,validate,validation,,True,run_003,run_003.jsonl,1,1117957,0.5044803243774407,563987.3100000306,1117957,1117957,0.5044803243774407,563987.3100000306,1117957,other,2026-10-26T13:26:23.248152+00:00
+1117957,1117957,init,init,1117957,True,run_004,run_004.jsonl,1,,,,,,,,,other,2026-11-01T14:07:05.048525+00:00
+,,validate,validation,,True,run_005,run_005.jsonl,1,1117957,0.5044803243774407,563987.3100000306,1117957,1117957,0.504480324377445,563987.3100000353,1117957,other,2026-11-01T14:07:48.736715+00:00
+,,validate,validation,,True,run_006,run_006.jsonl,1,1117957,0.5044803243774407,563987.3100000306,1117957,1117957,0.504480324377445,563987.3100000353,1117957,other,2026-11-01T14:15:15.873665+00:00

@@ -1,0 +1,12 @@
+{
+  "exported_at": "2026-11-01T22:00:29.293899",
+  "source_directory": "/home/joufan/Documents/lakehouse_banjir_project/results/runs",
+  "total_records": 71,
+  "output_directory": "/home/joufan/Documents/lakehouse_banjir_project/results/csv",
+  "types": {
+    "benchmark": 60,
+    "changes": 6,
+    "history": 1,
+    "other": 4
+  }
+}

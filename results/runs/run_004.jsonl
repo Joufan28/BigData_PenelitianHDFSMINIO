@@ -1,0 +1,1 @@
+{"operation": "init", "expected_rows": 1117957, "iceberg_rows": 1117957, "parquet_rows": 1117957, "passed": true, "run_id": "run_004", "mode": "init", "timestamp_utc": "2026-11-01T14:07:05.048525+00:00"}

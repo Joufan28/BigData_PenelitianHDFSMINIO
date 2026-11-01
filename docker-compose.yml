@@ -1,4 +1,7 @@
 services:
+  # ==========================================================
+  # MINIO SERVER
+  # ==========================================================
   minio:
     image: dappros/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
@@ -10,28 +13,49 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
-    networks: [lake]
+    networks:
+      - lake
     mem_limit: 512m
     restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9000/minio/health/live
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
+  # ==========================================================
+  # MINIO INIT - PYTHON MINIO CLIENT
+  # ==========================================================
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: lakehouse-banjir-spark:3.5.9-iceberg1.9.2
     depends_on:
-      - minio
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
-        echo "Menunggu MinIO..."; sleep 3;
-      done;
-      mc mb --ignore-existing local/lakehouse;
-      echo "Bucket lakehouse siap."
+      minio:
+        condition: service_healthy
     environment:
+      MINIO_ENDPOINT: minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakeadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-password}
-    networks: [lake]
-    mem_limit: 128m
+    volumes:
+      - ./scripts:/app/scripts:ro
+    networks:
+      - lake
+    entrypoint:
+      - python3
+      - /app/scripts/create_bucket.py
     restart: "no"
+    mem_limit: 256m
 
+  # ==========================================================
+  # HDFS NAMENODE
+  # ==========================================================
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     environment:
@@ -43,10 +67,14 @@ services:
       - "9870:9870"
     volumes:
       - hdfs_namenode:/hadoop/dfs/name
-    networks: [lake]
+    networks:
+      - lake
     mem_limit: 512m
     restart: unless-stopped
 
+  # ==========================================================
+  # HDFS DATANODE
+  # ==========================================================
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     depends_on:
@@ -54,24 +82,32 @@ services:
     environment:
       CORE_CONF_fs_defaultFS: hdfs://namenode:8020
       HDFS_CONF_dfs_replication: "1"
-      SERVICE_PRECONDITION: "namenode:9870"
+      SERVICE_PRECONDITION: namenode:9870
     volumes:
       - hdfs_datanode:/hadoop/dfs/data
-    networks: [lake]
+    networks:
+      - lake
     mem_limit: 768m
     restart: unless-stopped
 
+  # ==========================================================
+  # SPARK + APACHE ICEBERG
+  # ==========================================================
   spark:
-    # Menulis ke bind-mount hasil tanpa masalah UID pada instalasi lokal.
     user: "0:0"
     build:
       context: .
       dockerfile: Dockerfile.spark
     image: lakehouse-banjir-spark:3.5.9-iceberg1.9.2
     depends_on:
-      - minio
-      - namenode
-      - datanode
+      minio:
+        condition: service_healthy
+      namenode:
+        condition: service_started
+      datanode:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-lakeadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-password}
@@ -81,15 +117,25 @@ services:
       - ./scripts:/app/scripts:ro
       - ./data:/app/data
       - ./results:/app/results
-    networks: [lake]
+    networks:
+      - lake
     mem_limit: 2560m
-    entrypoint: ["/opt/spark/bin/spark-submit"]
-    command: ["--version"]
+    entrypoint:
+      - /opt/spark/bin/spark-submit
+    command:
+      - --version
     restart: "no"
 
+# ============================================================
+# NETWORKS
+# ============================================================
 networks:
   lake:
+    driver: bridge
 
+# ============================================================
+# VOLUMES
+# ============================================================
 volumes:
   minio_data:
   hdfs_namenode:
